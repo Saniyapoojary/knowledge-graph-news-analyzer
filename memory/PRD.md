@@ -26,7 +26,9 @@ Build a complete end-to-end Real-Time Fake News Detection System using Neo4j gra
 ## What's Been Implemented (April 2026)
 - Full backend with Neo4j + MongoDB integration
 - spaCy NLP entity extraction
-- Fake Score algorithm (source credibility, author credibility, topic clustering, repetition, text analysis)
+- **Upgraded Fake Score algorithm (April 15)**: Pure Neo4j graph-based scoring using formula `score = (source_count * 5) + (author_count * 3) + (topic_frequency * 2)` where all counts are from Cypher queries
+- Thresholds: <30 = Likely True, 30-70 = Suspicious, >70 = Likely Fake
+- API response includes: score, label, reason (with Cypher query references), breakdown (source_count, author_count, topic_frequency, formula)
 - 30+ sample articles seeded
 - D3.js interactive force-directed graph with zoom/pan/drag
 - Dark/light mode toggle
