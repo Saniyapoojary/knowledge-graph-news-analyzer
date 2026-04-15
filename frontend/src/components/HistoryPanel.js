@@ -2,17 +2,19 @@ import React from "react";
 import { Clock, ShieldCheck, ShieldAlert, AlertTriangle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
-function VerdictIcon({ verdict }) {
-  if (verdict === "LIKELY TRUE") return <ShieldCheck className="w-4 h-4 text-blue-500" />;
-  if (verdict === "LIKELY FAKE") return <ShieldAlert className="w-4 h-4 text-red-500" />;
+function VerdictIcon({ verdict, label }) {
+  const v = label || verdict;
+  if (v === "LIKELY TRUE" || v === "Likely True") return <ShieldCheck className="w-4 h-4 text-blue-500" />;
+  if (v === "LIKELY FAKE" || v === "Likely Fake") return <ShieldAlert className="w-4 h-4 text-red-500" />;
   return <AlertTriangle className="w-4 h-4 text-yellow-500" />;
 }
 
 function ScoreBar({ score }) {
-  const color = score < 30 ? "bg-blue-500" : score > 70 ? "bg-red-500" : "bg-yellow-500";
+  const capped = Math.min(score, 100);
+  const color = capped < 30 ? "bg-blue-500" : capped > 70 ? "bg-red-500" : "bg-yellow-500";
   return (
     <div className="w-16 h-1.5 bg-muted rounded-none overflow-hidden">
-      <div className={`h-full ${color} transition-all`} style={{ width: `${score}%` }} />
+      <div className={`h-full ${color} transition-all`} style={{ width: `${capped}%` }} />
     </div>
   );
 }
@@ -72,23 +74,30 @@ export default function HistoryPanel({ history }) {
                 </td>
                 <td className="p-3">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs font-bold">{item.fake_score}</span>
-                    <ScoreBar score={item.fake_score} />
+                    <span className="font-mono text-xs font-bold">{item.score ?? item.fake_score}</span>
+                    <ScoreBar score={item.score ?? item.fake_score} />
                   </div>
                 </td>
                 <td className="p-3">
                   <div className="flex items-center gap-1.5">
-                    <VerdictIcon verdict={item.verdict} />
-                    <Badge
-                      variant="outline"
-                      className={`rounded-sm text-[10px] font-mono ${
-                        item.verdict === "LIKELY TRUE" ? "text-blue-500 border-blue-500/30" :
-                        item.verdict === "LIKELY FAKE" ? "text-red-500 border-red-500/30" :
-                        "text-yellow-500 border-yellow-500/30"
-                      }`}
-                    >
-                      {item.verdict}
-                    </Badge>
+                    <VerdictIcon verdict={item.verdict} label={item.label} />
+                    {(() => {
+                      const displayLabel = item.label || item.verdict;
+                      const isTrust = displayLabel === "Likely True" || displayLabel === "LIKELY TRUE";
+                      const isFake = displayLabel === "Likely Fake" || displayLabel === "LIKELY FAKE";
+                      return (
+                        <Badge
+                          variant="outline"
+                          className={`rounded-sm text-[10px] font-mono ${
+                            isTrust ? "text-blue-500 border-blue-500/30" :
+                            isFake ? "text-red-500 border-red-500/30" :
+                            "text-yellow-500 border-yellow-500/30"
+                          }`}
+                        >
+                          {item.label || item.verdict}
+                        </Badge>
+                      );
+                    })()}
                   </div>
                 </td>
                 <td className="p-3">

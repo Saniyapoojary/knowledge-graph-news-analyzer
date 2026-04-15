@@ -93,7 +93,7 @@ class FakeNewsAPITester:
         return success
 
     def test_analyze_fake_article(self):
-        """Test analyzing a fake news article"""
+        """Test analyzing a fake news article with Neo4j scoring"""
         fake_article = {
             "text": "BREAKING: Secret government documents EXPOSED showing they've been hiding alien technology since 1947! The mainstream media doesn't want you to know about the advanced energy devices recovered from crash sites. Share before this gets deleted!",
             "source": "truthrevealed.net",
@@ -101,7 +101,7 @@ class FakeNewsAPITester:
         }
         
         success, response = self.run_test(
-            "Analyze Fake Article",
+            "Analyze Fake Article (Neo4j Scoring)",
             "POST",
             "analyze",
             200,
@@ -110,29 +110,59 @@ class FakeNewsAPITester:
         )
         
         if success:
-            fake_score = response.get("fake_score", 0)
-            verdict = response.get("verdict", "")
-            print(f"   📊 Fake Score: {fake_score}")
-            print(f"   📋 Verdict: {verdict}")
+            # Test new response format
+            score = response.get("score", 0)
+            label = response.get("label", "")
+            reason = response.get("reason", "")
+            breakdown = response.get("breakdown", {})
             
-            # Validate response structure
-            required_fields = ["id", "fake_score", "verdict", "explanation", "entities", "graph_data", "timestamp"]
+            print(f"   📊 Score: {score}")
+            print(f"   📋 Label: {label}")
+            print(f"   📝 Reason: {reason[:100]}...")
+            
+            # Validate NEW response structure
+            required_fields = ["id", "score", "label", "reason", "fake_score", "verdict", "explanation", "breakdown", "entities", "graph_data", "timestamp"]
             missing_fields = [field for field in required_fields if field not in response]
             if missing_fields:
-                print(f"   ⚠️  Missing fields: {missing_fields}")
+                print(f"   ❌ Missing fields: {missing_fields}")
                 return False
             
-            # Check if fake score is appropriately high for fake news
-            if fake_score > 50:
-                print("   ✅ High fake score detected correctly")
-                return True
-            else:
-                print(f"   ⚠️  Expected higher fake score for obvious fake news, got {fake_score}")
+            # Test breakdown structure
+            required_breakdown = ["source_count", "author_count", "topic_frequency", "formula", "raw_score", "capped_score"]
+            missing_breakdown = [field for field in required_breakdown if field not in breakdown]
+            if missing_breakdown:
+                print(f"   ❌ Missing breakdown fields: {missing_breakdown}")
                 return False
+            
+            # Test formula calculation
+            source_count = breakdown.get("source_count", 0)
+            author_count = breakdown.get("author_count", 0)
+            topic_frequency = breakdown.get("topic_frequency", 0)
+            expected_raw = (source_count * 5) + (author_count * 3) + (topic_frequency * 2)
+            actual_raw = breakdown.get("raw_score", 0)
+            
+            print(f"   🧮 Formula: ({source_count} x 5) + ({author_count} x 3) + ({topic_frequency} x 2) = {expected_raw}")
+            print(f"   🧮 Actual raw score: {actual_raw}")
+            
+            if abs(expected_raw - actual_raw) > 0.1:
+                print(f"   ❌ Formula calculation mismatch: expected {expected_raw}, got {actual_raw}")
+                return False
+            
+            # Check if score is appropriate for fake source
+            if score >= 30:  # Should be Suspicious or Likely Fake
+                if label in ["Suspicious", "Likely Fake"]:
+                    print(f"   ✅ Correct label '{label}' for score {score}")
+                    return True
+                else:
+                    print(f"   ❌ Wrong label '{label}' for score {score}")
+                    return False
+            else:
+                print(f"   ⚠️  Expected score >= 30 for fake source, got {score}")
+                return score >= 30  # Still pass if it's close
         return success
 
     def test_analyze_trustworthy_article(self):
-        """Test analyzing a trustworthy article"""
+        """Test analyzing a trustworthy article with Neo4j scoring"""
         trustworthy_article = {
             "text": "The Federal Reserve announced today that it will maintain current interest rates at 5.25%, citing stable employment numbers and controlled inflation at 2.1%. Chair Jerome Powell said the committee will continue monitoring economic indicators before making any changes. Markets responded calmly with modest gains across major indices.",
             "source": "reuters",
@@ -140,7 +170,7 @@ class FakeNewsAPITester:
         }
         
         success, response = self.run_test(
-            "Analyze Trustworthy Article",
+            "Analyze Trustworthy Article (Neo4j Scoring)",
             "POST",
             "analyze",
             200,
@@ -149,18 +179,46 @@ class FakeNewsAPITester:
         )
         
         if success:
-            fake_score = response.get("fake_score", 100)
-            verdict = response.get("verdict", "")
-            print(f"   📊 Fake Score: {fake_score}")
-            print(f"   📋 Verdict: {verdict}")
+            score = response.get("score", 100)
+            label = response.get("label", "")
+            reason = response.get("reason", "")
+            breakdown = response.get("breakdown", {})
             
-            # Check if fake score is appropriately low for trustworthy news
-            if fake_score < 50:
-                print("   ✅ Low fake score detected correctly")
-                return True
-            else:
-                print(f"   ⚠️  Expected lower fake score for trustworthy news, got {fake_score}")
+            print(f"   📊 Score: {score}")
+            print(f"   📋 Label: {label}")
+            print(f"   📝 Reason: {reason[:100]}...")
+            
+            # Test breakdown structure
+            required_breakdown = ["source_count", "author_count", "topic_frequency", "formula", "raw_score", "capped_score"]
+            missing_breakdown = [field for field in required_breakdown if field not in breakdown]
+            if missing_breakdown:
+                print(f"   ❌ Missing breakdown fields: {missing_breakdown}")
                 return False
+            
+            # Test formula calculation
+            source_count = breakdown.get("source_count", 0)
+            author_count = breakdown.get("author_count", 0)
+            topic_frequency = breakdown.get("topic_frequency", 0)
+            expected_raw = (source_count * 5) + (author_count * 3) + (topic_frequency * 2)
+            actual_raw = breakdown.get("raw_score", 0)
+            
+            print(f"   🧮 Formula: ({source_count} x 5) + ({author_count} x 3) + ({topic_frequency} x 2) = {expected_raw}")
+            
+            if abs(expected_raw - actual_raw) > 0.1:
+                print(f"   ❌ Formula calculation mismatch: expected {expected_raw}, got {actual_raw}")
+                return False
+            
+            # Check if score is appropriate for trustworthy source
+            if score < 30:  # Should be Likely True
+                if label == "Likely True":
+                    print(f"   ✅ Correct label '{label}' for score {score}")
+                    return True
+                else:
+                    print(f"   ❌ Wrong label '{label}' for score {score}")
+                    return False
+            else:
+                print(f"   ⚠️  Expected score < 30 for trustworthy source, got {score}")
+                return score < 30  # Still pass if it's close
         return success
 
     def test_get_graph_data(self):
@@ -240,6 +298,39 @@ class FakeNewsAPITester:
                 return False
         return success
 
+    def test_neo4j_reason_format(self):
+        """Test that reason field contains Cypher query references"""
+        test_article = {
+            "text": "SHOCKING: New study proves 5G towers cause cancer and mind control! Scientists who tried to publish were SILENCED by big tech. Wake up people! They are experimenting on us!",
+            "source": "freedomwatch.blog",
+            "author": "anonymous whistleblower"
+        }
+        
+        success, response = self.run_test(
+            "Neo4j Reason Format Test",
+            "POST",
+            "analyze",
+            200,
+            data=test_article,
+            timeout=45
+        )
+        
+        if success:
+            reason = response.get("reason", "")
+            print(f"   📝 Reason: {reason}")
+            
+            # Check for Cypher query references in reason
+            cypher_indicators = ["MATCH", "graph query:", "Neo4j", "Cypher"]
+            has_cypher_ref = any(indicator in reason for indicator in cypher_indicators)
+            
+            if has_cypher_ref:
+                print("   ✅ Reason contains Cypher query references")
+                return True
+            else:
+                print("   ❌ Reason missing Cypher query references")
+                return False
+        return success
+
     def test_invalid_analyze_request(self):
         """Test error handling for invalid analyze request"""
         invalid_article = {
@@ -273,6 +364,7 @@ def main():
         ("Seed Database", tester.test_seed_database),
         ("Analyze Fake Article", tester.test_analyze_fake_article),
         ("Analyze Trustworthy Article", tester.test_analyze_trustworthy_article),
+        ("Neo4j Reason Format", tester.test_neo4j_reason_format),
         ("Get Graph Data", tester.test_get_graph_data),
         ("Get Statistics", tester.test_get_stats),
         ("Get History", tester.test_get_history),

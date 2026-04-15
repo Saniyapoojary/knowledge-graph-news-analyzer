@@ -1,18 +1,18 @@
 import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ShieldCheck, ShieldAlert, AlertTriangle, Info, ChevronRight } from "lucide-react";
+import { ShieldCheck, ShieldAlert, AlertTriangle, Info, ChevronRight, Database } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 
-function ScoreGauge({ score, verdict }) {
+function ScoreGauge({ score, label }) {
   const radius = 45;
   const circumference = 2 * Math.PI * radius;
-  const offset = circumference - (score / 100) * circumference;
+  const offset = circumference - (Math.min(score, 100) / 100) * circumference;
   
   const color =
-    verdict === "LIKELY TRUE" ? "hsl(var(--accent-trust))" :
-    verdict === "LIKELY FAKE" ? "hsl(var(--accent-fake))" :
+    label === "Likely True" ? "hsl(var(--accent-trust))" :
+    label === "Likely Fake" ? "hsl(var(--accent-fake))" :
     "hsl(var(--accent-suspicious))";
 
   return (
@@ -41,21 +41,21 @@ function ScoreGauge({ score, verdict }) {
           {score}
         </span>
         <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-          /100
+          score
         </span>
       </div>
     </div>
   );
 }
 
-function VerdictBadge({ verdict }) {
+function LabelBadge({ label }) {
   const config = {
-    "LIKELY TRUE": { icon: ShieldCheck, className: "bg-blue-500/10 text-blue-500 border-blue-500/30" },
-    "LIKELY FAKE": { icon: ShieldAlert, className: "bg-red-500/10 text-red-500 border-red-500/30" },
-    "SUSPICIOUS": { icon: AlertTriangle, className: "bg-yellow-500/10 text-yellow-500 border-yellow-500/30" },
+    "Likely True": { icon: ShieldCheck, className: "bg-blue-500/10 text-blue-500 border-blue-500/30" },
+    "Likely Fake": { icon: ShieldAlert, className: "bg-red-500/10 text-red-500 border-red-500/30" },
+    "Suspicious": { icon: AlertTriangle, className: "bg-yellow-500/10 text-yellow-500 border-yellow-500/30" },
   };
 
-  const { icon: Icon, className } = config[verdict] || config["SUSPICIOUS"];
+  const { icon: Icon, className } = config[label] || config["Suspicious"];
 
   return (
     <Badge
@@ -64,7 +64,7 @@ function VerdictBadge({ verdict }) {
       data-testid="verdict-badge"
     >
       <Icon className="w-3.5 h-3.5 mr-1.5" />
-      {verdict}
+      {label}
     </Badge>
   );
 }
@@ -102,6 +102,10 @@ export default function ResultsPanel({ result, isAnalyzing }) {
     );
   }
 
+  const score = result.score ?? result.fake_score;
+  const label = result.label || (result.verdict === "LIKELY TRUE" ? "Likely True" : result.verdict === "LIKELY FAKE" ? "Likely Fake" : "Suspicious");
+  const breakdown = result.breakdown || {};
+
   return (
     <AnimatePresence mode="wait">
       <motion.div
@@ -123,15 +127,15 @@ export default function ResultsPanel({ result, isAnalyzing }) {
           </span>
         </div>
 
-        {/* Score + Verdict */}
+        {/* Score + Label */}
         <div className="flex items-center gap-6">
-          <ScoreGauge score={result.fake_score} verdict={result.verdict} />
+          <ScoreGauge score={score} label={label} />
           <div className="flex-1 space-y-3">
-            <VerdictBadge verdict={result.verdict} />
+            <LabelBadge label={label} />
             <p className="text-sm text-muted-foreground leading-relaxed">
-              {result.fake_score < 30
+              {label === "Likely True"
                 ? "This article shows patterns consistent with credible reporting."
-                : result.fake_score > 70
+                : label === "Likely Fake"
                 ? "This article exhibits multiple characteristics of misinformation."
                 : "This article has some concerning patterns that warrant verification."}
             </p>
@@ -140,11 +144,61 @@ export default function ResultsPanel({ result, isAnalyzing }) {
 
         <Separator className="my-4" />
 
-        {/* Explanation */}
+        {/* Score Breakdown — formula visualization */}
+        {breakdown.formula && (
+          <>
+            <div className="space-y-3" data-testid="score-breakdown">
+              <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+                Score Breakdown (Neo4j Graph)
+              </span>
+              <div className="bg-background border border-border rounded-sm p-3">
+                <div className="font-mono text-xs text-center mb-3" data-testid="score-formula">
+                  <span className="text-muted-foreground">score = </span>
+                  <span className="text-red-400">(source:{breakdown.source_count} x 5)</span>
+                  <span className="text-muted-foreground"> + </span>
+                  <span className="text-yellow-400">(author:{breakdown.author_count} x 3)</span>
+                  <span className="text-muted-foreground"> + </span>
+                  <span className="text-blue-400">(topic:{breakdown.topic_frequency} x 2)</span>
+                  <span className="text-muted-foreground"> = </span>
+                  <span className="text-foreground font-bold">{breakdown.raw_score}</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <BreakdownBar
+                    label="Source"
+                    count={breakdown.source_count}
+                    total={breakdown.source_total}
+                    multiplier={5}
+                    color="bg-red-500"
+                  />
+                  <BreakdownBar
+                    label="Author"
+                    count={breakdown.author_count}
+                    total={breakdown.author_total}
+                    multiplier={3}
+                    color="bg-yellow-500"
+                  />
+                  <BreakdownBar
+                    label="Topic"
+                    count={breakdown.topic_frequency}
+                    total={breakdown.topic_frequency}
+                    multiplier={2}
+                    color="bg-blue-500"
+                  />
+                </div>
+              </div>
+            </div>
+            <Separator className="my-4" />
+          </>
+        )}
+
+        {/* Reason — detailed explanation using graph data */}
         <div className="space-y-2">
-          <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
-            Explanation
-          </span>
+          <div className="flex items-center gap-1.5">
+            <Database className="w-3.5 h-3.5 text-muted-foreground" />
+            <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+              Reason (Graph Analysis)
+            </span>
+          </div>
           <div className="space-y-1.5" data-testid="explanation-list">
             {result.explanation.map((exp, i) => (
               <motion.div
@@ -193,5 +247,20 @@ export default function ResultsPanel({ result, isAnalyzing }) {
         </div>
       </motion.div>
     </AnimatePresence>
+  );
+}
+
+function BreakdownBar({ label, count, total, multiplier, color }) {
+  const contribution = count * multiplier;
+  const maxWidth = Math.min((contribution / 50) * 100, 100);
+  return (
+    <div className="text-center" data-testid={`breakdown-${label.toLowerCase()}`}>
+      <div className="font-mono text-lg font-bold">{count}</div>
+      <div className="font-mono text-[9px] text-muted-foreground uppercase tracking-wider">{label} (x{multiplier})</div>
+      <div className="w-full h-1.5 bg-muted rounded-none mt-1.5 overflow-hidden">
+        <div className={`h-full ${color} transition-all duration-700`} style={{ width: `${maxWidth}%` }} />
+      </div>
+      <div className="font-mono text-[9px] text-muted-foreground mt-0.5">= {contribution} pts</div>
+    </div>
   );
 }

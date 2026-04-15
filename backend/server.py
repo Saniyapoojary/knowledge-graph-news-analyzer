@@ -60,9 +60,13 @@ class AnalyzeRequest(BaseModel):
 
 class AnalyzeResponse(BaseModel):
     id: str
-    fake_score: float
-    verdict: str
+    score: float
+    label: str
+    reason: str
+    fake_score: float  # alias for score (backward compat)
+    verdict: str  # alias for label (backward compat)
     explanation: List[str]
+    breakdown: Dict[str, Any]
     entities: Dict[str, Any]
     graph_data: Dict[str, Any]
     timestamp: str
@@ -162,128 +166,119 @@ def store_in_neo4j(article_id: str, text: str, source: str, author: str, entitie
 
 
 def calculate_fake_score(text: str, source: str, author: str, entities: Dict) -> tuple:
+    """
+    New scoring formula using pure Neo4j graph analysis:
+    score = (source_count * 5) + (author_count * 3) + (topic_frequency * 2)
+    
+    - source_count: number of suspicious/fake articles from same source
+    - author_count: number of suspicious/fake articles by same author
+    - topic_frequency: number of suspicious articles sharing the same topics
+    """
     driver = get_neo4j_driver()
-    explanations = []
-    scores = {
-        "source_credibility": 0,
-        "author_credibility": 0,
-        "topic_clustering": 0,
-        "repetition": 0,
-        "text_analysis": 0
-    }
+    reasons = []
+    source_count = 0
+    author_count = 0
+    topic_frequency = 0
+    
+    # Raw counts from Neo4j for breakdown display
+    source_total = 0
+    author_total = 0
     
     with driver.session() as session:
-        # 1. Source credibility check
+        # 1. Source credibility — count suspicious articles from this source
         if source and source != "unknown":
             result = session.run("""
                 MATCH (s:Source {name: $source})<-[:PUBLISHED_BY]-(n:News)
-                RETURN count(n) as total_articles, 
-                       avg(n.fake_score) as avg_score,
-                       count(CASE WHEN n.verdict = 'LIKELY FAKE' THEN 1 END) as fake_count
+                RETURN count(n) as total_articles,
+                       count(CASE WHEN n.verdict IN ['LIKELY FAKE', 'SUSPICIOUS'] THEN 1 END) as suspicious_count
             """, source=source.lower().strip())
             record = result.single()
-            if record and record["total_articles"] > 0:
-                fake_ratio = (record["fake_count"] or 0) / record["total_articles"]
-                scores["source_credibility"] = min(fake_ratio * 100, 100)
-                if fake_ratio > 0.5:
-                    explanations.append(f"Source '{source}' has {record['fake_count']}/{record['total_articles']} flagged articles ({fake_ratio*100:.0f}% fake rate)")
-                elif fake_ratio < 0.2:
-                    explanations.append(f"Source '{source}' has good credibility ({(1-fake_ratio)*100:.0f}% trustworthy)")
+            if record:
+                source_total = record["total_articles"] or 0
+                source_count = record["suspicious_count"] or 0
+                if source_count > 3:
+                    reasons.append(
+                        f"Source '{source}' has {source_count} suspicious articles out of {source_total} total "
+                        f"(>{3} threshold) — graph query: MATCH (s:Source {{name: '{source}'}})<-[:PUBLISHED_BY]-(n:News)"
+                    )
+                elif source_total > 0 and source_count == 0:
+                    reasons.append(f"Source '{source}' has {source_total} articles with 0 flagged — credible source")
+                elif source_total > 0:
+                    reasons.append(f"Source '{source}' has {source_count}/{source_total} suspicious articles")
         
-        # 2. Author credibility check
+        # 2. Author credibility — count suspicious articles by this author
         if author and author != "unknown":
             result = session.run("""
                 MATCH (a:Author {name: $author})<-[:WRITTEN_BY]-(n:News)
                 RETURN count(n) as total_articles,
-                       count(CASE WHEN n.verdict = 'LIKELY FAKE' THEN 1 END) as fake_count
+                       count(CASE WHEN n.verdict IN ['LIKELY FAKE', 'SUSPICIOUS'] THEN 1 END) as suspicious_count
             """, author=author.lower().strip())
             record = result.single()
-            if record and record["total_articles"] > 0:
-                fake_ratio = (record["fake_count"] or 0) / record["total_articles"]
-                scores["author_credibility"] = min(fake_ratio * 100, 100)
-                if fake_ratio > 0.5:
-                    explanations.append(f"Author '{author}' linked to {record['fake_count']} suspicious articles")
+            if record:
+                author_total = record["total_articles"] or 0
+                author_count = record["suspicious_count"] or 0
+                if author_count > 0:
+                    reasons.append(
+                        f"Author '{author}' linked to {author_count} suspicious articles out of {author_total} total "
+                        f"— graph query: MATCH (a:Author {{name: '{author}'}})<-[:WRITTEN_BY]-(n:News)"
+                    )
+                elif author_total > 0:
+                    reasons.append(f"Author '{author}' has {author_total} articles with 0 flagged — credible author")
         
-        # 3. Topic clustering - check if topics overlap with fake news clusters
+        # 3. Topic clustering — count suspicious articles sharing the same topics
         topics = entities.get("topics", [])
         if topics:
+            clean_topics = [t.lower().strip() for t in topics[:5]]
             result = session.run("""
                 UNWIND $topics AS topic_name
                 MATCH (t:Topic {name: topic_name})<-[:ABOUT]-(n:News)
-                WHERE n.verdict = 'LIKELY FAKE'
-                RETURN count(DISTINCT n) as fake_cluster_size
-            """, topics=[t.lower().strip() for t in topics[:5]])
+                WHERE n.verdict IN ['LIKELY FAKE', 'SUSPICIOUS']
+                RETURN count(DISTINCT n) as suspicious_topic_articles
+            """, topics=clean_topics)
             record = result.single()
-            if record and record["fake_cluster_size"] > 0:
-                cluster_score = min(record["fake_cluster_size"] * 15, 100)
-                scores["topic_clustering"] = cluster_score
-                if cluster_score > 30:
-                    explanations.append(f"Topics overlap with {record['fake_cluster_size']} previously flagged articles")
-        
-        # 4. Repetition/duplicate detection
-        text_hash = hashlib.md5(text[:200].lower().encode()).hexdigest()
-        result = session.run("""
-            MATCH (n:News)
-            WHERE n.text CONTAINS $snippet
-            RETURN count(n) as similar_count
-        """, snippet=text[:100].lower())
-        record = result.single()
-        if record and record["similar_count"] > 1:
-            scores["repetition"] = min((record["similar_count"] - 1) * 20, 100)
-            explanations.append(f"Similar content detected in {record['similar_count'] - 1} other articles")
+            if record:
+                topic_frequency = record["suspicious_topic_articles"] or 0
+                if topic_frequency > 0:
+                    reasons.append(
+                        f"Topics overlap with {topic_frequency} previously flagged articles "
+                        f"— graph query: MATCH (t:Topic)<-[:ABOUT]-(n:News) WHERE n.verdict IN ['LIKELY FAKE','SUSPICIOUS']"
+                    )
     
-    # 5. Text-based heuristic analysis
-    text_lower = text.lower()
-    sensational_words = [
-        "shocking", "breaking", "urgent", "exposed", "secret", "conspiracy",
-        "they don't want you to know", "mainstream media", "cover up", "hoax",
-        "wake up", "banned", "censored", "bombshell", "exclusive leak",
-        "you won't believe", "share before deleted", "going viral"
-    ]
+    # Apply formula: score = (source_count * 5) + (author_count * 3) + (topic_frequency * 2)
+    raw_score = (source_count * 5) + (author_count * 3) + (topic_frequency * 2)
     
-    caps_ratio = sum(1 for c in text if c.isupper()) / max(len(text), 1)
-    exclamation_count = text.count("!")
-    sensational_count = sum(1 for w in sensational_words if w in text_lower)
+    # Cap at 100
+    final_score = round(min(raw_score, 100), 1)
     
-    text_score = 0
-    if caps_ratio > 0.3:
-        text_score += 25
-        explanations.append("Excessive use of capital letters detected")
-    if exclamation_count > 3:
-        text_score += 15
-        explanations.append(f"Multiple exclamation marks ({exclamation_count}) suggest sensationalism")
-    if sensational_count > 0:
-        text_score += min(sensational_count * 12, 40)
-        explanations.append(f"Contains {sensational_count} sensational/clickbait phrases")
+    # Determine label
+    if final_score < 30:
+        label = "Likely True"
+    elif final_score <= 70:
+        label = "Suspicious"
+    else:
+        label = "Likely Fake"
     
-    # Check for lack of specific details (dates, numbers, quotes)
-    has_numbers = bool(re.search(r'\d{4}', text))
-    has_quotes = '"' in text or "'" in text
-    if not has_numbers and not has_quotes and len(text) > 100:
-        text_score += 10
-        explanations.append("Article lacks specific dates, numbers, or direct quotes")
+    # Build detailed reason string
+    if not reasons:
+        reasons.append("No suspicious patterns detected in the graph. Article appears credible.")
     
-    scores["text_analysis"] = min(text_score, 100)
+    reason_text = (
+        f"Score {final_score} = (source_count:{source_count} x 5) + (author_count:{author_count} x 3) + (topic_frequency:{topic_frequency} x 2). "
+        + " | ".join(reasons)
+    )
     
-    # Weighted final score
-    weights = {
-        "source_credibility": 0.25,
-        "author_credibility": 0.20,
-        "topic_clustering": 0.20,
-        "repetition": 0.15,
-        "text_analysis": 0.20
+    breakdown = {
+        "source_count": source_count,
+        "source_total": source_total,
+        "author_count": author_count,
+        "author_total": author_total,
+        "topic_frequency": topic_frequency,
+        "formula": f"({source_count} x 5) + ({author_count} x 3) + ({topic_frequency} x 2) = {raw_score}",
+        "raw_score": raw_score,
+        "capped_score": final_score
     }
     
-    final_score = sum(scores[k] * weights[k] for k in scores)
-    final_score = round(min(max(final_score, 0), 100), 1)
-    
-    if not explanations:
-        if final_score < 30:
-            explanations.append("No suspicious patterns detected. Article appears credible.")
-        else:
-            explanations.append("Some patterns warrant caution but no definitive red flags found.")
-    
-    return final_score, explanations, scores
+    return final_score, label, reason_text, reasons, breakdown
 
 
 def get_graph_data(article_id: Optional[str] = None) -> Dict:
@@ -401,16 +396,12 @@ async def analyze_news(req: AnalyzeRequest):
     if author == "unknown" and entities["persons"]:
         author = entities["persons"][0]
     
-    # Calculate fake score
-    fake_score, explanations, score_breakdown = calculate_fake_score(req.text, source, author, entities)
+    # Calculate fake score using Neo4j graph analysis
+    fake_score, label, reason_text, explanations, breakdown = calculate_fake_score(req.text, source, author, entities)
     
-    # Determine verdict
-    if fake_score < 30:
-        verdict = "LIKELY TRUE"
-    elif fake_score <= 70:
-        verdict = "SUSPICIOUS"
-    else:
-        verdict = "LIKELY FAKE"
+    # Map label to internal verdict for storage
+    verdict_map = {"Likely True": "LIKELY TRUE", "Suspicious": "SUSPICIOUS", "Likely Fake": "LIKELY FAKE"}
+    verdict = verdict_map.get(label, "SUSPICIOUS")
     
     # Store in Neo4j
     try:
@@ -429,21 +420,28 @@ async def analyze_news(req: AnalyzeRequest):
         "text_preview": req.text[:150],
         "full_text": req.text,
         "fake_score": fake_score,
+        "score": fake_score,
+        "label": label,
         "verdict": verdict,
+        "reason": reason_text,
         "source": source,
         "author": author,
         "entities": entities,
         "explanations": explanations,
-        "score_breakdown": score_breakdown,
+        "breakdown": breakdown,
         "timestamp": timestamp
     }
     await db.analysis_history.insert_one(history_doc)
     
     response = AnalyzeResponse(
         id=article_id,
+        score=fake_score,
+        label=label,
+        reason=reason_text,
         fake_score=fake_score,
         verdict=verdict,
         explanation=explanations,
+        breakdown=breakdown,
         entities=entities,
         graph_data=graph_data,
         timestamp=timestamp
