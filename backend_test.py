@@ -535,6 +535,8 @@ class FakeNewsAPITester:
             print("   ✅ Properly rejected short article")
             return True
         return success
+
+def main():
     print("🚀 Starting Fake News Detection API Tests")
     print("=" * 60)
     
