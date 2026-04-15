@@ -8,6 +8,8 @@ import ResultsPanel from "@/components/ResultsPanel";
 import GraphVisualization from "@/components/GraphVisualization";
 import HistoryPanel from "@/components/HistoryPanel";
 import StatsPanel from "@/components/StatsPanel";
+import QuickStatsCard from "@/components/QuickStatsCard";
+import RecentAnalysisCard from "@/components/RecentAnalysisCard";
 import { Toaster } from "@/components/ui/sonner";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -114,23 +116,27 @@ const Home = () => {
 
       <main className="max-w-[1600px] mx-auto px-4 pt-4 pb-8">
         {activeView === "analyze" && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-            {/* Left: Input */}
-            <div className="lg:col-span-5 space-y-4">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
+            {/* Left: Input + Quick Stats + Recent */}
+            <div className="lg:col-span-5 flex flex-col gap-4">
               <AnalysisPanel
                 onAnalyze={analyzeNews}
                 isAnalyzing={isAnalyzing}
               />
+              <QuickStatsCard stats={stats} />
+              <RecentAnalysisCard history={history} />
             </div>
 
             {/* Right: Results + Graph */}
-            <div className="lg:col-span-7 space-y-4">
+            <div className="lg:col-span-7 flex flex-col gap-4">
               <ResultsPanel result={analysisResult} isAnalyzing={isAnalyzing} />
-              <GraphVisualization
-                graphData={
-                  analysisResult ? analysisResult.graph_data : graphData
-                }
-              />
+              <div className="flex-1 min-h-0">
+                <GraphVisualization
+                  graphData={
+                    analysisResult ? analysisResult.graph_data : graphData
+                  }
+                />
+              </div>
             </div>
           </div>
         )}
