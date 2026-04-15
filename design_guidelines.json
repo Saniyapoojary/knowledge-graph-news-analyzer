@@ -1,0 +1,102 @@
+{
+  "theme": "dark/light",
+  "archetype": "4 (Swiss & High-Contrast)",
+  "emotional_tone": "Authoritative, objective, forensic, precise",
+  "colors": {
+    "light": {
+      "background": "#F4F4F5",
+      "surface": "#FFFFFF",
+      "text_primary": "#09090B",
+      "text_secondary": "#52525B",
+      "border": "#E4E4E7",
+      "primary": "#000000",
+      "accent_trust": "#2563EB",
+      "accent_fake": "#DC2626",
+      "accent_suspicious": "#F59E0B"
+    },
+    "dark": {
+      "background": "#09090B",
+      "surface": "#18181B",
+      "text_primary": "#FAFAFA",
+      "text_secondary": "#A1A1AA",
+      "border": "#27272A",
+      "primary": "#FFFFFF",
+      "accent_trust": "#3B82F6",
+      "accent_fake": "#EF4444",
+      "accent_suspicious": "#FBBF24"
+    }
+  },
+  "typography": {
+    "fonts": {
+      "heading": "IBM Plex Sans",
+      "body": "IBM Plex Sans",
+      "mono": "IBM Plex Mono"
+    },
+    "hierarchy": {
+      "h1": "text-4xl sm:text-5xl font-bold tracking-tighter",
+      "h2": "text-2xl sm:text-3xl font-semibold tracking-tight",
+      "h3": "text-xl sm:text-2xl font-medium",
+      "body": "text-base leading-relaxed",
+      "label": "text-xs font-mono uppercase tracking-[0.2em]"
+    }
+  },
+  "layout": {
+    "strategy": "Control Room Grid",
+    "spacing": "Dense and compact. Tailwind p-4 to p-6 for widgets.",
+    "grid_structure": "grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4",
+    "surface_styles": {
+      "dashboard_cards": "Flat background, 1px subtle border (border-border), no shadow, rounded-none or max rounded-md."
+    }
+  },
+  "interactions": {
+    "hover_states": "Hard background shifts. hover:bg-zinc-100 dark:hover:bg-zinc-800. Text must remain accessible.",
+    "buttons": "Square or rounded-sm edges. Sharp hover transitions.",
+    "loading": "Terminal-style blinking cursor or high-contrast skeleton loaders."
+  },
+  "components": {
+    "required_libraries": [
+      "lucide-react",
+      "d3",
+      "clsx",
+      "tailwind-merge",
+      "framer-motion"
+    ],
+    "shadcn_customization": {
+      "button": "rounded-none or rounded-sm, uppercase mono text if technical.",
+      "input_textarea": "Focus state must have ring-2 ring-primary ring-offset-background. Sharp borders.",
+      "cards": "Remove default heavy shadows. Use border-collapse style or sharp 1px border."
+    },
+    "d3_graph": {
+      "nodes": "Circles with stroke. Color coded based on entity type or suspicion level.",
+      "links": "Thin lines with low opacity. Red lines for suspicious relationships.",
+      "background": "Transparent to blend with the card background.",
+      "interactions": "Zoom, pan, drag nodes, hover tooltips."
+    }
+  },
+  "media": {
+    "images": [
+      {
+        "category": "hero_background_abstract",
+        "url": "https://images.unsplash.com/photo-1678845536613-5cf0ec5245cd?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2OTV8MHwxfHNlYXJjaHwyfHxkYXRhJTIwdmlzdWFsaXphdGlvbiUyMG5vZGUlMjBhYnN0cmFjdHxlbnwwfHx8fDE3NzYyMzQ5MjF8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Abstract dots/network."
+      },
+      {
+        "category": "news_texture_placeholder",
+        "url": "https://images.unsplash.com/photo-1756234814579-d0474aeae2cf?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDF8MHwxfHNlYXJjaHwyfHxuZXdzcGFwZXIlMjB0eXBvZ3JhcGh5JTIwY2xvc2UlMjB1cHxlbnwwfHx8fDE3NzYyMzQ5MjF8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Typography close up for empty states or branding."
+      }
+    ]
+  },
+  "testing": {
+    "guidelines": "All interactive and key informational elements MUST include a `data-testid` attribute (e.g., `data-testid=\"analyze-button\"`, `data-testid=\"score-result\"`)."
+  },
+  "instructions_to_main_agent": [
+    "Implement a responsive Control Room Grid layout. The main area should be split between the Input Form, the Results Panel (Score + Explanation), and the D3.js Graph.",
+    "Use IBM Plex Sans for all text, and IBM Plex Mono for data labels, scores, and entity types.",
+    "D3 Graph must have a transparent background and color-coded nodes (Red=Fake Source/Suspicious, Blue=Trustworthy, Yellow=Suspicious). Include zoom and pan behaviors.",
+    "Support Dark/Light mode natively using Tailwind 'dark:' classes.",
+    "Avoid round buttons. Use `rounded-none` or `rounded-sm` for a sharp, precise, 'Swiss Brutalist' data aesthetic.",
+    "Add 'data-testid' to all buttons, form inputs, score readouts, and toggle switches.",
+    "The UI should feel authoritative and objective. Emphasize contrast and precise borders. Use negative space inside cards instead of drop shadows."
+  ]
+}
