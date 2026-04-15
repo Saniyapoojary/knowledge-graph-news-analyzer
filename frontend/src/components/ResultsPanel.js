@@ -1,6 +1,6 @@
 import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ShieldCheck, ShieldAlert, AlertTriangle, Info, ChevronRight, Database } from "lucide-react";
+import { ShieldCheck, ShieldAlert, AlertTriangle, Info, ChevronRight, Database, FileText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
@@ -144,46 +144,59 @@ export default function ResultsPanel({ result, isAnalyzing }) {
 
         <Separator className="my-4" />
 
-        {/* Score Breakdown — formula visualization */}
+        {/* Combined Score Breakdown */}
         {breakdown.formula && (
           <>
             <div className="space-y-3" data-testid="score-breakdown">
               <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
-                Score Breakdown (Neo4j Graph)
+                Score Breakdown
               </span>
+
+              {/* Top-level formula */}
               <div className="bg-background border border-border rounded-sm p-3">
-                <div className="font-mono text-xs text-center mb-3" data-testid="score-formula">
-                  <span className="text-muted-foreground">score = </span>
-                  <span className="text-red-400">(source:{breakdown.source_count} x 5)</span>
+                <div className="font-mono text-xs text-center mb-1" data-testid="score-formula">
+                  <span className="text-muted-foreground">final = </span>
+                  <span className="text-indigo-400">graph({breakdown.graph_score})</span>
                   <span className="text-muted-foreground"> + </span>
-                  <span className="text-yellow-400">(author:{breakdown.author_count} x 3)</span>
-                  <span className="text-muted-foreground"> + </span>
-                  <span className="text-blue-400">(topic:{breakdown.topic_frequency} x 2)</span>
+                  <span className="text-orange-400">content({breakdown.content_score})</span>
                   <span className="text-muted-foreground"> = </span>
-                  <span className="text-foreground font-bold">{breakdown.raw_score}</span>
+                  <span className="text-foreground font-bold">{breakdown.raw_score}{breakdown.raw_score > 100 ? " (capped 100)" : ""}</span>
+                </div>
+              </div>
+
+              {/* Graph score detail */}
+              <div className="bg-background border border-border rounded-sm p-3">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <Database className="w-3 h-3 text-indigo-400" />
+                  <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-indigo-400">
+                    Graph Score — {breakdown.graph_score} pts
+                  </span>
+                </div>
+                <div className="font-mono text-[11px] text-center mb-2 text-muted-foreground" data-testid="graph-formula">
+                  ({breakdown.source_count} x 5) + ({breakdown.author_count} x 3) + ({breakdown.topic_frequency} x 2) = {breakdown.graph_score}
                 </div>
                 <div className="grid grid-cols-3 gap-2">
-                  <BreakdownBar
-                    label="Source"
-                    count={breakdown.source_count}
-                    total={breakdown.source_total}
-                    multiplier={5}
-                    color="bg-red-500"
-                  />
-                  <BreakdownBar
-                    label="Author"
-                    count={breakdown.author_count}
-                    total={breakdown.author_total}
-                    multiplier={3}
-                    color="bg-yellow-500"
-                  />
-                  <BreakdownBar
-                    label="Topic"
-                    count={breakdown.topic_frequency}
-                    total={breakdown.topic_frequency}
-                    multiplier={2}
-                    color="bg-blue-500"
-                  />
+                  <BreakdownBar label="Source" count={breakdown.source_count} multiplier={5} color="bg-red-500" />
+                  <BreakdownBar label="Author" count={breakdown.author_count} multiplier={3} color="bg-yellow-500" />
+                  <BreakdownBar label="Topic" count={breakdown.topic_frequency} multiplier={2} color="bg-blue-500" />
+                </div>
+              </div>
+
+              {/* Content score detail */}
+              <div className="bg-background border border-border rounded-sm p-3">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <FileText className="w-3 h-3 text-orange-400" />
+                  <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-orange-400">
+                    Content Score — {breakdown.content_score} pts
+                  </span>
+                </div>
+                <div className="font-mono text-[11px] text-center mb-2 text-muted-foreground" data-testid="content-formula">
+                  sensational({breakdown.sensational_score}) + unrealistic({breakdown.unrealistic_score}) + conspiracy({breakdown.conspiracy_score}) = {breakdown.content_score}
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <ContentTag label="Sensational" score={breakdown.sensational_score} items={breakdown.sensational_keywords || []} color="text-amber-500" />
+                  <ContentTag label="Unrealistic" score={breakdown.unrealistic_score} items={breakdown.unrealistic_claims || []} color="text-rose-500" />
+                  <ContentTag label="Conspiracy" score={breakdown.conspiracy_score} items={breakdown.conspiracy_phrases || []} color="text-purple-500" />
                 </div>
               </div>
             </div>
@@ -191,27 +204,34 @@ export default function ResultsPanel({ result, isAnalyzing }) {
           </>
         )}
 
-        {/* Reason — detailed explanation using graph data */}
+        {/* Explanation — graph-based + content-based reasons */}
         <div className="space-y-2">
-          <div className="flex items-center gap-1.5">
-            <Database className="w-3.5 h-3.5 text-muted-foreground" />
-            <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
-              Reason (Graph Analysis)
-            </span>
-          </div>
+          <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+            Explanation
+          </span>
           <div className="space-y-1.5" data-testid="explanation-list">
-            {result.explanation.map((exp, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, x: -8 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: i * 0.1 }}
-                className="flex items-start gap-2 text-sm"
-              >
-                <ChevronRight className="w-3.5 h-3.5 text-muted-foreground mt-0.5 shrink-0" />
-                <span>{exp}</span>
-              </motion.div>
-            ))}
+            {result.explanation.map((exp, i) => {
+              const isGraph = exp.startsWith("[Graph]");
+              const isContent = exp.startsWith("[Content]");
+              const tagColor = isGraph ? "text-indigo-400" : isContent ? "text-orange-400" : "text-muted-foreground";
+              const tag = isGraph ? "GRAPH" : isContent ? "CONTENT" : "";
+              const text = exp.replace("[Graph] ", "").replace("[Content] ", "");
+              return (
+                <motion.div
+                  key={i}
+                  initial={{ opacity: 0, x: -8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.08 }}
+                  className="flex items-start gap-2 text-sm"
+                >
+                  <ChevronRight className="w-3.5 h-3.5 text-muted-foreground mt-0.5 shrink-0" />
+                  <span>
+                    {tag && <span className={`font-mono text-[9px] ${tagColor} mr-1.5`}>[{tag}]</span>}
+                    {text}
+                  </span>
+                </motion.div>
+              );
+            })}
           </div>
         </div>
 
@@ -250,7 +270,7 @@ export default function ResultsPanel({ result, isAnalyzing }) {
   );
 }
 
-function BreakdownBar({ label, count, total, multiplier, color }) {
+function BreakdownBar({ label, count, multiplier, color }) {
   const contribution = count * multiplier;
   const maxWidth = Math.min((contribution / 50) * 100, 100);
   return (
@@ -261,6 +281,24 @@ function BreakdownBar({ label, count, total, multiplier, color }) {
         <div className={`h-full ${color} transition-all duration-700`} style={{ width: `${maxWidth}%` }} />
       </div>
       <div className="font-mono text-[9px] text-muted-foreground mt-0.5">= {contribution} pts</div>
+    </div>
+  );
+}
+
+function ContentTag({ label, score, items, color }) {
+  return (
+    <div className="text-center" data-testid={`content-${label.toLowerCase()}`}>
+      <div className={`font-mono text-lg font-bold ${color}`}>{score > 0 ? `+${score}` : "0"}</div>
+      <div className="font-mono text-[9px] text-muted-foreground uppercase tracking-wider">{label}</div>
+      {items.length > 0 && (
+        <div className="mt-1 flex flex-wrap justify-center gap-1">
+          {items.map((item) => (
+            <span key={item} className={`font-mono text-[8px] px-1 py-0.5 rounded-sm border border-current/20 ${color}`}>
+              {item}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

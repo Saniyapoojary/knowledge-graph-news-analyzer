@@ -167,25 +167,24 @@ def store_in_neo4j(article_id: str, text: str, source: str, author: str, entitie
 
 def calculate_fake_score(text: str, source: str, author: str, entities: Dict) -> tuple:
     """
-    New scoring formula using pure Neo4j graph analysis:
-    score = (source_count * 5) + (author_count * 3) + (topic_frequency * 2)
+    Combined scoring: final_score = graph_score + content_score
     
-    - source_count: number of suspicious/fake articles from same source
-    - author_count: number of suspicious/fake articles by same author
-    - topic_frequency: number of suspicious articles sharing the same topics
+    Graph score  = (source_count * 5) + (author_count * 3) + (topic_frequency * 2)
+    Content score = sensational keywords (+10 each) + unrealistic claims (+20 each) + conspiracy phrases (+15 each)
     """
     driver = get_neo4j_driver()
-    reasons = []
+    graph_reasons = []
+    content_reasons = []
     source_count = 0
     author_count = 0
     topic_frequency = 0
-    
-    # Raw counts from Neo4j for breakdown display
     source_total = 0
     author_total = 0
-    
+
+    # ── GRAPH-BASED ANALYSIS (Neo4j) ──
+
     with driver.session() as session:
-        # 1. Source credibility — count suspicious articles from this source
+        # 1. Source credibility
         if source and source != "unknown":
             result = session.run("""
                 MATCH (s:Source {name: $source})<-[:PUBLISHED_BY]-(n:News)
@@ -197,16 +196,16 @@ def calculate_fake_score(text: str, source: str, author: str, entities: Dict) ->
                 source_total = record["total_articles"] or 0
                 source_count = record["suspicious_count"] or 0
                 if source_count > 3:
-                    reasons.append(
+                    graph_reasons.append(
                         f"Source '{source}' has {source_count} suspicious articles out of {source_total} total "
-                        f"(>{3} threshold) — graph query: MATCH (s:Source {{name: '{source}'}})<-[:PUBLISHED_BY]-(n:News)"
+                        f"(>{3} threshold) — MATCH (s:Source {{name: '{source}'}})<-[:PUBLISHED_BY]-(n:News)"
                     )
                 elif source_total > 0 and source_count == 0:
-                    reasons.append(f"Source '{source}' has {source_total} articles with 0 flagged — credible source")
+                    graph_reasons.append(f"Source '{source}' has {source_total} articles with 0 flagged — credible source")
                 elif source_total > 0:
-                    reasons.append(f"Source '{source}' has {source_count}/{source_total} suspicious articles")
-        
-        # 2. Author credibility — count suspicious articles by this author
+                    graph_reasons.append(f"Source '{source}' has {source_count}/{source_total} suspicious articles")
+
+        # 2. Author credibility
         if author and author != "unknown":
             result = session.run("""
                 MATCH (a:Author {name: $author})<-[:WRITTEN_BY]-(n:News)
@@ -218,14 +217,14 @@ def calculate_fake_score(text: str, source: str, author: str, entities: Dict) ->
                 author_total = record["total_articles"] or 0
                 author_count = record["suspicious_count"] or 0
                 if author_count > 0:
-                    reasons.append(
+                    graph_reasons.append(
                         f"Author '{author}' linked to {author_count} suspicious articles out of {author_total} total "
-                        f"— graph query: MATCH (a:Author {{name: '{author}'}})<-[:WRITTEN_BY]-(n:News)"
+                        f"— MATCH (a:Author {{name: '{author}'}})<-[:WRITTEN_BY]-(n:News)"
                     )
                 elif author_total > 0:
-                    reasons.append(f"Author '{author}' has {author_total} articles with 0 flagged — credible author")
-        
-        # 3. Topic clustering — count suspicious articles sharing the same topics
+                    graph_reasons.append(f"Author '{author}' has {author_total} articles with 0 flagged — credible author")
+
+        # 3. Topic clustering
         topics = entities.get("topics", [])
         if topics:
             clean_topics = [t.lower().strip() for t in topics[:5]]
@@ -239,46 +238,104 @@ def calculate_fake_score(text: str, source: str, author: str, entities: Dict) ->
             if record:
                 topic_frequency = record["suspicious_topic_articles"] or 0
                 if topic_frequency > 0:
-                    reasons.append(
+                    graph_reasons.append(
                         f"Topics overlap with {topic_frequency} previously flagged articles "
-                        f"— graph query: MATCH (t:Topic)<-[:ABOUT]-(n:News) WHERE n.verdict IN ['LIKELY FAKE','SUSPICIOUS']"
+                        f"— MATCH (t:Topic)<-[:ABOUT]-(n:News) WHERE n.verdict IN ['LIKELY FAKE','SUSPICIOUS']"
                     )
-    
-    # Apply formula: score = (source_count * 5) + (author_count * 3) + (topic_frequency * 2)
-    raw_score = (source_count * 5) + (author_count * 3) + (topic_frequency * 2)
-    
-    # Cap at 100
-    final_score = round(min(raw_score, 100), 1)
-    
-    # Determine label
+
+    graph_score = (source_count * 5) + (author_count * 3) + (topic_frequency * 2)
+
+    # ── CONTENT-BASED ANALYSIS ──
+
+    text_lower = text.lower()
+
+    # 1. Sensational keywords (+10 each)
+    sensational_keywords = ["breaking", "secret", "cure", "instantly", "hidden", "shocking"]
+    found_sensational = [kw for kw in sensational_keywords if kw in text_lower]
+    sensational_score = len(found_sensational) * 10
+    if found_sensational:
+        content_reasons.append(
+            f"Sensational keywords detected ({len(found_sensational)}): "
+            f"{', '.join(found_sensational)} — +{sensational_score} pts"
+        )
+
+    # 2. Unrealistic claims (+20 each)
+    unrealistic_phrases = ["cure all", "100% guaranteed", "instant results", "100 percent", "miracle cure", "works instantly"]
+    found_unrealistic = [ph for ph in unrealistic_phrases if ph in text_lower]
+    unrealistic_score = len(found_unrealistic) * 20
+    if found_unrealistic:
+        content_reasons.append(
+            f"Unrealistic claims detected ({len(found_unrealistic)}): "
+            f"{', '.join(found_unrealistic)} — +{unrealistic_score} pts"
+        )
+
+    # 3. Conspiracy language (+15 each)
+    conspiracy_phrases = ["government hiding", "they don't want you to know", "cover up", "mainstream media lies",
+                          "they are hiding", "the truth they hide", "what they don't tell you", "being suppressed"]
+    found_conspiracy = [ph for ph in conspiracy_phrases if ph in text_lower]
+    conspiracy_score = len(found_conspiracy) * 15
+    if found_conspiracy:
+        content_reasons.append(
+            f"Conspiracy language detected ({len(found_conspiracy)}): "
+            f"{', '.join(found_conspiracy)} — +{conspiracy_score} pts"
+        )
+
+    content_score = sensational_score + unrealistic_score + conspiracy_score
+
+    if not content_reasons:
+        content_reasons.append("No sensational, unrealistic, or conspiracy language detected in article text")
+
+    # ── COMBINE ──
+
+    raw_final = graph_score + content_score
+    final_score = round(min(raw_final, 100), 1)
+
     if final_score < 30:
         label = "Likely True"
     elif final_score <= 70:
         label = "Suspicious"
     else:
         label = "Likely Fake"
-    
-    # Build detailed reason string
-    if not reasons:
-        reasons.append("No suspicious patterns detected in the graph. Article appears credible.")
-    
+
+    # Merge explanations: graph first, then content
+    all_reasons = []
+    for r in graph_reasons:
+        all_reasons.append(f"[Graph] {r}")
+    for r in content_reasons:
+        all_reasons.append(f"[Content] {r}")
+
+    if not graph_reasons:
+        all_reasons.insert(0, "[Graph] No suspicious graph patterns detected — article source/author appear credible")
+
     reason_text = (
-        f"Score {final_score} = (source_count:{source_count} x 5) + (author_count:{author_count} x 3) + (topic_frequency:{topic_frequency} x 2). "
-        + " | ".join(reasons)
+        f"Final score {final_score} = graph_score({graph_score}) + content_score({content_score}). "
+        f"Graph: (source:{source_count} x 5) + (author:{author_count} x 3) + (topic:{topic_frequency} x 2) = {graph_score}. "
+        f"Content: sensational({sensational_score}) + unrealistic({unrealistic_score}) + conspiracy({conspiracy_score}) = {content_score}. "
+        + " | ".join(r.replace("[Graph] ", "").replace("[Content] ", "") for r in all_reasons)
     )
-    
+
     breakdown = {
+        "graph_score": graph_score,
+        "content_score": content_score,
         "source_count": source_count,
         "source_total": source_total,
         "author_count": author_count,
         "author_total": author_total,
         "topic_frequency": topic_frequency,
-        "formula": f"({source_count} x 5) + ({author_count} x 3) + ({topic_frequency} x 2) = {raw_score}",
-        "raw_score": raw_score,
+        "sensational_keywords": found_sensational,
+        "sensational_score": sensational_score,
+        "unrealistic_claims": found_unrealistic,
+        "unrealistic_score": unrealistic_score,
+        "conspiracy_phrases": found_conspiracy,
+        "conspiracy_score": conspiracy_score,
+        "formula": f"graph({graph_score}) + content({content_score}) = {raw_final}",
+        "graph_formula": f"({source_count} x 5) + ({author_count} x 3) + ({topic_frequency} x 2) = {graph_score}",
+        "content_formula": f"sensational({sensational_score}) + unrealistic({unrealistic_score}) + conspiracy({conspiracy_score}) = {content_score}",
+        "raw_score": raw_final,
         "capped_score": final_score
     }
-    
-    return final_score, label, reason_text, reasons, breakdown
+
+    return final_score, label, reason_text, all_reasons, breakdown
 
 
 def get_graph_data(article_id: Optional[str] = None) -> Dict:
